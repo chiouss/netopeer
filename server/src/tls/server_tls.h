@@ -70,7 +70,7 @@ int np_tls_client_netconf_rpc(struct client_struct_tls* client);
 
 int np_tls_client_transport(struct client_struct_tls* client);
 
-void np_tls_thread_cleanup(void);
+#define np_tls_thread_cleanup(x)
 
 void np_tls_init(void);
 

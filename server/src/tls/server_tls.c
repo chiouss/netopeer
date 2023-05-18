@@ -93,7 +93,7 @@ void client_free_tls(struct client_struct_tls* client) {
 	free(client);
 }
 
-static char* asn1time_to_str(ASN1_TIME *t) {
+static char* asn1time_to_str(const ASN1_TIME *t) {
 	char *cp;
 	BIO *bio;
 	int n;
@@ -241,14 +241,14 @@ static int tls_ctn_get_username_from_cert(X509* client_cert, CTN_MAP_TYPE map_ty
 			/* rfc822Name (email) */
 			if ((map_type == CTN_MAP_TYPE_SAN_ANY || map_type == CTN_MAP_TYPE_SAN_RFC822_NAME) &&
 					san_name->type == GEN_EMAIL) {
-				*username = strdup((char*)ASN1_STRING_data(san_name->d.rfc822Name));
+				*username = strdup((char*)ASN1_STRING_get0_data(san_name->d.rfc822Name));
 				break;
 			}
 
 			/* dNSName */
 			if ((map_type == CTN_MAP_TYPE_SAN_ANY || map_type == CTN_MAP_TYPE_SAN_DNS_NAME) &&
 					san_name->type == GEN_DNS) {
-				*username = strdup((char*)ASN1_STRING_data(san_name->d.dNSName));
+				*username = strdup((char*)ASN1_STRING_get0_data(san_name->d.dNSName));
 				break;
 			}
 
@@ -480,8 +480,8 @@ fail:
 static int tls_verify_callback(int preverify_ok, X509_STORE_CTX* x509_ctx) {
 	X509_STORE *store;
 	X509_LOOKUP *lookup;
-	X509_STORE_CTX store_ctx;
-	X509_OBJECT obj;
+	X509_STORE_CTX *store_ctx = X509_STORE_CTX_new();
+	X509_OBJECT *obj;
 	X509_NAME* subject;
 	X509_NAME* issuer;
 	X509* cert;
@@ -496,7 +496,7 @@ static int tls_verify_callback(int preverify_ok, X509_STORE_CTX* x509_ctx) {
 	int i, n, rc, depth;
 	char* cp;
 	CTN_MAP_TYPE map_type = 0;
-	ASN1_TIME* last_update = NULL, *next_update = NULL;
+	const ASN1_TIME* last_update = NULL, *next_update = NULL;
 
 	/* get the new client structure */
 	cur_tls = X509_STORE_CTX_get_ex_data(x509_ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
@@ -596,18 +596,18 @@ static int tls_verify_callback(int preverify_ok, X509_STORE_CTX* x509_ctx) {
 
 		/* try to retrieve a CRL corresponding to the _subject_ of
 		* the current certificate in order to verify it's integrity */
-		memset((char*)&obj, 0, sizeof(obj));
-		X509_STORE_CTX_init(&store_ctx, store, NULL, NULL);
-		rc = X509_STORE_get_by_subject(&store_ctx, X509_LU_CRL, subject, &obj);
-		X509_STORE_CTX_cleanup(&store_ctx);
-		crl = obj.data.crl;
-		if (rc > 0 && crl) {
+		obj = X509_OBJECT_new();
+		X509_STORE_CTX_init(store_ctx, store, NULL, NULL);
+		rc = X509_STORE_CTX_get_by_subject(store_ctx, X509_LU_CRL, subject, obj);
+		X509_STORE_CTX_cleanup(store_ctx);
+		if (rc) {
+			crl = X509_OBJECT_get0_X509_CRL(obj);
 			cp = X509_NAME_oneline(subject, NULL, 0);
 			nc_verb_verbose("Cert verify CRL: issuer: %s", cp);
 			OPENSSL_free(cp);
 
-			last_update = X509_CRL_get_lastUpdate(crl);
-			next_update = X509_CRL_get_nextUpdate(crl);
+			last_update = X509_CRL_get0_lastUpdate(crl);
+			next_update = X509_CRL_get0_nextUpdate(crl);
 			cp = asn1time_to_str(last_update);
 			nc_verb_verbose("Cert verify CRL: last update: %s", cp);
 			free(cp);
@@ -616,63 +616,57 @@ static int tls_verify_callback(int preverify_ok, X509_STORE_CTX* x509_ctx) {
 			free(cp);
 
 			/* verify the signature on this CRL */
-			pubkey = X509_get_pubkey(cert);
+			pubkey = X509_get0_pubkey(cert);
 			if (X509_CRL_verify(crl, pubkey) <= 0) {
 				nc_verb_error("Cert verify CRL: invalid signature.");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_CRL_SIGNATURE_FAILURE);
-				X509_OBJECT_free_contents(&obj);
-				if (pubkey) {
-					EVP_PKEY_free(pubkey);
-				}
+				X509_OBJECT_free(obj);
 				X509_STORE_free(store);
 				return 0;
-			}
-			if (pubkey) {
-				EVP_PKEY_free(pubkey);
 			}
 
 			/* check date of CRL to make sure it's not expired */
 			if (next_update == NULL) {
 				nc_verb_error("Cert verify CRL: invalid nextUpdate field.");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD);
-				X509_OBJECT_free_contents(&obj);
+				X509_OBJECT_free(obj);
 				X509_STORE_free(store);
 				return 0;
 			}
 			if (X509_cmp_current_time(next_update) < 0) {
 				nc_verb_error("Cert verify CRL: expired - revoking all certificates.");
 				X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_CRL_HAS_EXPIRED);
-				X509_OBJECT_free_contents(&obj);
+				X509_OBJECT_free(obj);
 				X509_STORE_free(store);
 				return 0;
 			}
-			X509_OBJECT_free_contents(&obj);
+			X509_OBJECT_free(obj);
 		}
 
 		/* try to retrieve a CRL corresponding to the _issuer_ of
 		* the current certificate in order to check for revocation */
-		memset((char*)&obj, 0, sizeof(obj));
-		X509_STORE_CTX_init(&store_ctx, store, NULL, NULL);
-		rc = X509_STORE_get_by_subject(&store_ctx, X509_LU_CRL, issuer, &obj);
-		X509_STORE_CTX_cleanup(&store_ctx);
-		crl = obj.data.crl;
-		if (rc > 0 && crl) {
+		obj = X509_OBJECT_new();
+		X509_STORE_CTX_init(store_ctx, store, NULL, NULL);
+		rc = X509_STORE_CTX_get_by_subject(store_ctx, X509_LU_CRL, issuer, obj);
+		X509_STORE_CTX_free(store_ctx);
+		if (rc) {
+			crl = X509_OBJECT_get0_X509_CRL(obj);
 			/* check if the current certificate is revoked by this CRL */
 			n = sk_X509_REVOKED_num(X509_CRL_get_REVOKED(crl));
 			for (i = 0; i < n; i++) {
 				revoked = sk_X509_REVOKED_value(X509_CRL_get_REVOKED(crl), i);
-				if (ASN1_INTEGER_cmp(revoked->serialNumber, X509_get_serialNumber(cert)) == 0) {
-					serial = ASN1_INTEGER_get(revoked->serialNumber);
+				if (ASN1_INTEGER_cmp(X509_REVOKED_get0_serialNumber(revoked), X509_get_serialNumber(cert)) == 0) {
+					serial = ASN1_INTEGER_get(X509_REVOKED_get0_serialNumber(revoked));
 					cp = X509_NAME_oneline(issuer, NULL, 0);
 					nc_verb_error("Cert verify CRL: certificate with serial %ld (0x%lX) revoked per CRL from issuer %s", serial, serial, cp);
 					OPENSSL_free(cp);
 					X509_STORE_CTX_set_error(x509_ctx, X509_V_ERR_CERT_REVOKED);
-					X509_OBJECT_free_contents(&obj);
+					X509_OBJECT_free(obj);
 					X509_STORE_free(store);
 					return 0;
 				}
 			}
-			X509_OBJECT_free_contents(&obj);
+			X509_OBJECT_free(obj);
 		}
 		X509_STORE_free(store);
 	}
@@ -983,25 +977,6 @@ int np_tls_client_transport(struct client_struct_tls* client) {
 	return skip_sleep;
 }
 
-void np_tls_thread_cleanup(void) {
-	CRYPTO_THREADID crypto_tid;
-
-	CRYPTO_THREADID_current(&crypto_tid);
-	ERR_remove_thread_state(&crypto_tid);
-}
-
-static void tls_thread_locking_func(int mode, int n, const char* UNUSED(file), int UNUSED(line)) {
-	if (mode & CRYPTO_LOCK) {
-		pthread_mutex_lock(netopeer_state.tls_state->tls_mutex_buf+n);
-	} else {
-		pthread_mutex_unlock(netopeer_state.tls_state->tls_mutex_buf+n);
-	}
-}
-
-static unsigned long tls_thread_id_func() {
-	return (unsigned long)pthread_self();
-}
-
 static void tls_thread_setup(void) {
 	int i;
 
@@ -1009,16 +984,11 @@ static void tls_thread_setup(void) {
 	for (i = 0; i < CRYPTO_num_locks(); ++i) {
 		pthread_mutex_init(netopeer_state.tls_state->tls_mutex_buf+i, NULL);
 	}
-
-	CRYPTO_set_id_callback(tls_thread_id_func);
-	CRYPTO_set_locking_callback(tls_thread_locking_func);
 }
 
 static void tls_thread_cleanup(void) {
 	int i;
 
-	CRYPTO_set_id_callback(NULL);
-	CRYPTO_set_locking_callback(NULL);
 	for (i = 0; i < CRYPTO_num_locks(); ++i) {
 		pthread_mutex_destroy(netopeer_state.tls_state->tls_mutex_buf+i);
 	}
@@ -1043,7 +1013,7 @@ SSL_CTX* np_tls_server_id_check(SSL_CTX* tlsctx) {
 	/* Check server keys for a change */
 	if (netopeer_options.tls_opts->tls_ctx_change_flag || tlsctx == NULL) {
 		SSL_CTX_free(tlsctx);
-		if ((ret = SSL_CTX_new(TLSv1_2_server_method())) == NULL) {
+		if ((ret = SSL_CTX_new(TLS_server_method())) == NULL) {
 			nc_verb_error("%s: failed to create SSL context", __func__);
 			return NULL;
 		}
@@ -1150,14 +1120,10 @@ int np_tls_create_client(struct client_struct_tls* new_client, SSL_CTX* tlsctx) 
 }
 
 void np_tls_cleanup(void) {
-	CRYPTO_THREADID crypto_tid;
-
 	EVP_cleanup();
 	CRYPTO_cleanup_all_ex_data();
 	ERR_free_strings();
 	sk_SSL_COMP_free(SSL_COMP_get_compression_methods());
-	CRYPTO_THREADID_current(&crypto_tid);
-	ERR_remove_thread_state(&crypto_tid);
 
 	tls_thread_cleanup();
 	free(netopeer_state.tls_state);

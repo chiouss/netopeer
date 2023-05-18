@@ -2585,10 +2585,10 @@ void parse_cert(const char* name, const char* path, FILE* output) {
 					first_san = 0;
 				}
 				if (san_name->type == GEN_EMAIL) {
-					BIO_printf(bio_out, "RFC822:%s", (char*) ASN1_STRING_data(san_name->d.rfc822Name));
+					BIO_printf(bio_out, "RFC822:%s", (char*) ASN1_STRING_get0_data(san_name->d.rfc822Name));
 				}
 				if (san_name->type == GEN_DNS) {
-					BIO_printf(bio_out, "DNS:%s", (char*) ASN1_STRING_data(san_name->d.dNSName));
+					BIO_printf(bio_out, "DNS:%s", (char*) ASN1_STRING_get0_data(san_name->d.dNSName));
 				}
 				if (san_name->type == GEN_IPADD) {
 					BIO_printf(bio_out, "IP:");
@@ -2893,7 +2893,7 @@ void parse_crl(const char* name, const char* path, FILE* output) {
 	BIO *bio_out;
 	FILE *fp;
 	X509_CRL *crl;
-	ASN1_INTEGER* bs;
+	const ASN1_INTEGER* bs;
 	X509_REVOKED* rev;
 
 	fp = fopen(path, "r");
@@ -2917,11 +2917,11 @@ void parse_crl(const char* name, const char* path, FILE* output) {
 	BIO_printf(bio_out, "\n");
 
 	BIO_printf(bio_out, "Last update: ");
-	ASN1_TIME_print(bio_out, X509_CRL_get_lastUpdate(crl));
+	ASN1_TIME_print(bio_out, X509_CRL_get0_lastUpdate(crl));
 	BIO_printf(bio_out, "\n");
 
 	BIO_printf(bio_out, "Next update: ");
-	ASN1_TIME_print(bio_out, X509_CRL_get_nextUpdate(crl));
+	ASN1_TIME_print(bio_out, X509_CRL_get0_nextUpdate(crl));
 	BIO_printf(bio_out, "\n");
 
 	BIO_printf(bio_out, "REVOKED:\n");
@@ -2930,14 +2930,14 @@ void parse_crl(const char* name, const char* path, FILE* output) {
 		BIO_printf(bio_out, "\tNone\n");
 	}
 	while (rev != NULL) {
-		bs = rev->serialNumber;
+		bs = X509_REVOKED_get0_serialNumber(rev);
 		BIO_printf(bio_out, "\tSerial no.: ");
 		for (i = 0; i < bs->length; i++) {
 			BIO_printf(bio_out, "%02x", bs->data[i]);
 		}
 		BIO_printf(bio_out, "  Date: ");
 
-		ASN1_TIME_print(bio_out, rev->revocationDate);
+		ASN1_TIME_print(bio_out, X509_REVOKED_get0_revocationDate(rev));
 		BIO_printf(bio_out, "\n");
 
 		X509_REVOKED_free(rev);

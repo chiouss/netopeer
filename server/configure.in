@@ -307,7 +307,7 @@ fi
 
 if test "$TLS" = "yes"; then
 	# libssl
-	AC_SEARCH_LIBS([SSL_library_init], [ssl], [], [AC_MSG_ERROR([Missing the libssl library.])])
+	AC_SEARCH_LIBS([OPENSSL_init_ssl], [ssl], [], [AC_MSG_ERROR([Missing the libssl library.])])
 
 	# libcrypto
 	AC_SEARCH_LIBS([X509_free], [crypto], [], [AC_MSG_ERROR([Missing the libcrypto library.])])
