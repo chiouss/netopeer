@@ -295,7 +295,7 @@ char* readinput(const char* instruction, const char* tmpfile, FILE* output) {
 
 	if (strcmp(editor, "NONE") == 0) {
 		INSTRUCTION(output, "(finish input by Ctrl-D, add previous content from history by Ctrl-A)");
-		INSTRUCTION(output, instruction);
+		INSTRUCTION(output, "%s", instruction);
 		INSTRUCTION(output, "\n");
 
 		multiline = 1;
