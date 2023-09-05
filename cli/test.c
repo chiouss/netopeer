@@ -1,5 +1,4 @@
 #define _GNU_SOURCE
-#define _BSD_SOURCE
 
 #include <libnetconf.h>
 #include <stdlib.h>

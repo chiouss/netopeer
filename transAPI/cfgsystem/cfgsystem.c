@@ -5,7 +5,6 @@
  */
 
 #define _GNU_SOURCE
-#define _BSD_SOURCE
 
 #include <errno.h>
 #include <string.h>
